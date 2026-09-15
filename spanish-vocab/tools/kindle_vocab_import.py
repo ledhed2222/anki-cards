@@ -228,7 +228,7 @@ def main():
         print(f"(limited to first {len(lookups)})")
 
     added = 0
-    skip_counts = {"no_usage": 0, "duplicate": 0}
+    skip_counts = {"no_usage": 0, "duplicate": 0, "no_definition": 0}
     max_timestamp = state["last_timestamp"]
 
     seen_this_run = set()
@@ -257,9 +257,18 @@ def main():
             continue
 
         seen_this_run.add(key)
-        definicion = "" if args.no_definitions else (fetch_gloss(word, stem) or "")
-        gloss_note = definicion or "(no gloss found)"
-        print(f"  + {word} = {gloss_note}  ({title or 'unknown source'})")
+
+        definicion = ""
+        if not args.no_definitions:
+            definicion = fetch_gloss(word, stem) or ""
+            if not definicion:
+                # Neither Wiktionary nor the claude fallback found anything -
+                # an error state, not something to silently add blank.
+                skip_counts["no_definition"] += 1
+                log_skip("no_definition", word, stem, usage, title or "")
+                continue
+
+        print(f"  + {word} = {definicion or '(skipped)'}  ({title or 'unknown source'})")
         if args.apply:
             anki(
                 "addNote",
@@ -279,7 +288,8 @@ def main():
 
     total_skipped = sum(skip_counts.values())
     print(f"\n{added} to add, {total_skipped} skipped "
-          f"({skip_counts['duplicate']} duplicate, {skip_counts['no_usage']} no usage sentence) "
+          f"({skip_counts['duplicate']} duplicate, {skip_counts['no_usage']} no usage sentence, "
+          f"{skip_counts['no_definition']} no definition found) "
           f"- see {SKIP_LOG}")
     if not args.apply:
         print("Dry run - re-run with --apply to actually add notes.")
