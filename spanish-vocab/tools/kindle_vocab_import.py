@@ -24,9 +24,13 @@ that, so it already reflects what Kindle itself considered the word to be.
 import argparse
 import json
 import os
+import re
 import sqlite3
 import sys
 import urllib.request
+
+LETTER = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]+")
+HTML_TAG = re.compile(r"<[^>]+>")
 
 ANKI_URL = "http://127.0.0.1:8765"
 DECK = "Vocabulario español"
@@ -107,9 +111,23 @@ def fetch_new_lookups(db_path, lang, since_timestamp):
     return rows
 
 
-def is_duplicate(stem):
-    query = f'deck:"{DECK}" w:{stem}'
-    return len(anki("findNotes", query=query)) > 0
+def fetch_deck_words():
+    """Every whole word occurring anywhere in the deck, fetched once (2
+    AnkiConnect calls total) rather than one findNotes round-trip per word.
+    AnkiConnect can't handle concurrent requests (a single-threaded local
+    server - tested directly, concurrent calls get connection-reset), and at
+    ~120ms per call that's minutes for a few thousand words sequentially.
+    Tokenizing the whole deck's text locally and checking set membership is
+    the same "does this whole word appear anywhere in the note" semantics as
+    Anki's own `w:` search, just ~1500x faster for a bulk run like this."""
+    ids = anki("findNotes", query=f'deck:"{DECK}"')
+    notes = anki("notesInfo", notes=ids) if ids else []
+    words = set()
+    for n in notes:
+        for f in n["fields"].values():
+            text = HTML_TAG.sub("", f["value"] or "")
+            words.update(w.lower() for w in LETTER.findall(text))
+    return words
 
 
 def log_skip(reason, word, stem, usage, title):
@@ -135,6 +153,9 @@ def main():
 
     fields = anki("modelFieldNames", modelName=MODEL)
     print(f"Target model {MODEL!r} has fields: {fields}")
+
+    deck_words = fetch_deck_words()
+    print(f"{len(deck_words)} distinct words already in {DECK!r}")
 
     state = load_state()
     lookups = fetch_new_lookups(db_path, args.lang, state["last_timestamp"])
@@ -167,7 +188,7 @@ def main():
             log_skip("duplicate_in_batch", word, stem, usage, title or "")
             continue
 
-        if is_duplicate(stem or word):
+        if key in deck_words:
             skip_counts["duplicate"] += 1
             log_skip("duplicate_in_anki", word, stem, usage, title or "")
             continue
