@@ -33,6 +33,10 @@
   font-weight: 700;
 }
 
+.acierto {
+  font-style: italic;
+}
+
 .hueco {
   color: #4a90d9;
   letter-spacing: 0.05em;
