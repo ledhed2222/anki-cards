@@ -5,7 +5,8 @@ Español Reconocimiento notes. Read-only against the Kindle - it only ever
 reads vocab.db off the mounted device, never writes to it.
 
     python3 tools/kindle_vocab_import.py --inspect
-    python3 tools/kindle_vocab_import.py                  # dry run
+    python3 tools/kindle_vocab_import.py --limit 20          # small dry run
+    python3 tools/kindle_vocab_import.py                     # full dry run
     python3 tools/kindle_vocab_import.py --apply
 
 Schema is the community-documented (unofficial) layout of vocab.db:
@@ -14,6 +15,10 @@ Schema is the community-documented (unofficial) layout of vocab.db:
   BOOK_INFO(id, asin, guid, lang, title, authors)
 Column names can vary by firmware version - always run --inspect after a
 firmware update to confirm before trusting a real run.
+
+`lang` on WORDS is per-word (which dictionary Kindle used for that specific
+lookup), not the book's language - `--lang es` (the default) filters on
+that, so it already reflects what Kindle itself considered the word to be.
 """
 
 import argparse
@@ -107,16 +112,17 @@ def is_duplicate(stem):
     return len(anki("findNotes", query=query)) > 0
 
 
-def log_skip(word, stem, usage, title):
+def log_skip(reason, word, stem, usage, title):
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(SKIP_LOG, "a", encoding="utf-8") as f:
-        f.write(f"{word}\t{stem}\t{title}\t{usage}\n")
+        f.write(f"{reason}\t{word}\t{stem}\t{title}\t{usage}\n")
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--kindle-path", default="/Volumes/Kindle")
     ap.add_argument("--lang", default="es")
+    ap.add_argument("--limit", type=int, default=0, help="max lookups to process (0 = all)")
     ap.add_argument("--apply", action="store_true", help="actually add notes (default: dry run)")
     ap.add_argument("--inspect", action="store_true", help="print vocab.db schema/sample rows and exit")
     args = ap.parse_args()
@@ -133,9 +139,15 @@ def main():
     state = load_state()
     lookups = fetch_new_lookups(db_path, args.lang, state["last_timestamp"])
     print(f"{len(lookups)} new {args.lang!r} lookups since last sync")
+    if args.limit:
+        lookups = lookups[:args.limit]
+        print(f"(limited to first {len(lookups)})")
 
-    added, skipped = 0, 0
+    added = 0
+    skip_counts = {"no_usage": 0, "duplicate": 0}
     max_timestamp = state["last_timestamp"]
+
+    seen_this_run = set()
 
     for row in lookups:
         word, stem, usage, ts, title = (
@@ -144,15 +156,23 @@ def main():
         max_timestamp = max(max_timestamp, ts)
 
         if not usage:
-            skipped += 1
-            log_skip(word, stem, "(no usage sentence captured)", title or "")
+            skip_counts["no_usage"] += 1
+            log_skip("no_usage", word, stem, "(no usage sentence captured)", title or "")
+            continue
+
+        key = (stem or word).lower()
+
+        if key in seen_this_run:
+            skip_counts["duplicate"] += 1
+            log_skip("duplicate_in_batch", word, stem, usage, title or "")
             continue
 
         if is_duplicate(stem or word):
-            skipped += 1
-            log_skip(word, stem, usage, title or "")
+            skip_counts["duplicate"] += 1
+            log_skip("duplicate_in_anki", word, stem, usage, title or "")
             continue
 
+        seen_this_run.add(key)
         print(f"  + {word}  ({title or 'unknown source'})")
         if args.apply:
             anki(
@@ -171,13 +191,16 @@ def main():
             )
         added += 1
 
-    print(f"\n{added} to add, {skipped} skipped as duplicates (see {SKIP_LOG})")
+    total_skipped = sum(skip_counts.values())
+    print(f"\n{added} to add, {total_skipped} skipped "
+          f"({skip_counts['duplicate']} duplicate, {skip_counts['no_usage']} no usage sentence) "
+          f"- see {SKIP_LOG}")
     if not args.apply:
         print("Dry run - re-run with --apply to actually add notes.")
     else:
         state["last_timestamp"] = max_timestamp
         save_state(state)
-        print(f"Note: Definición is left blank - fill it in yourself in Anki's browser.")
+        print("Note: Definición is left blank - fill it in yourself in Anki's browser.")
 
 
 if __name__ == "__main__":
