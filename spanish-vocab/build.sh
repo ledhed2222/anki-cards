@@ -13,9 +13,6 @@ cd "$(dirname "$0")"
 
 mkdir -p dist
 
-cp shared/styling.css dist/styling.css
-echo "wrote dist/styling.css"
-
 for NOTETYPE in reconocimiento produccion; do
   OUT="dist/${NOTETYPE}.styling.txt"
   {
@@ -37,6 +34,3 @@ echo
 echo "Paste into Anki:"
 echo "  Styling tab      <- dist/<notetype>.styling.txt  (CSS *and* the script block)"
 echo "  Front/Back tabs  <- the matching .front.html / .back.html"
-echo
-echo "dist/styling.css is the CSS alone (no script tag) - same for every note type,"
-echo "just for viewing/linting with a real .css extension."
