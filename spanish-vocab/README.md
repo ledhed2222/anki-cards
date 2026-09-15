@@ -48,6 +48,8 @@ shared/script.js       the highlight/blank script, identical in both
 reconocimiento/        front + back for its one card type
 produccion/            front + back for both card types
 build.sh               glues shared/ into paste-ready blocks in dist/
+tools/                 vocabulary-capture scripts (not part of the card build)
+docs/                  design notes for the capture tooling
 ```
 
 The script is mode-aware, so the *same* file serves all four templates. The
@@ -97,6 +99,13 @@ jsdom is not WKWebView, so this catches logic regressions only.
 - a hand-bolded note
 - an accented word (`frenó`) — confirms the folding fallback
 - all of the above on iOS, not just desktop
+
+## Vocabulary capture
+
+`tools/kindle_vocab_import.py` reads a physical Kindle's Vocabulary Builder
+(over USB, read-only) and adds new lookups as `Español Reconocimiento` notes,
+deduped against the whole deck by lemma. See `docs/capture-automation.md` for
+the full design, including the iOS/macOS Shortcuts side (not yet built).
 
 ## Deck setup
 
