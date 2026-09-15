@@ -1,0 +1,6 @@
+{
+  "extends": "@ledhed2222/stylelint-config",
+  "rules": {
+    "selector-class-pattern": "^(nightMode|night_mode|[a-z][a-z0-9-]*)$"
+  }
+}

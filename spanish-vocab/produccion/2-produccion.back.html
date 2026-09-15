@@ -1,0 +1,19 @@
+<!-- Renders Oración fresh, WITHOUT data-modo, so the script bolds instead of
+     blanking. Do NOT use {{FrontSide}} here: it would carry the attribute and
+     the already-blanked markup across, hiding the answer. -->
+<div id="oracion" class="oracion">{{Oración}}</div>
+<div id="palabra">{{text:Palabra}}</div>
+
+<hr id="answer" />
+
+<div class="definicion">{{Definición}}</div>
+
+{{#Fuente}}
+<hr />
+<div class="fuente">{{Fuente}}</div>
+{{/Fuente}}
+
+{{#Notas}}
+<hr />
+<div class="notas">{{Notas}}</div>
+{{/Notas}}

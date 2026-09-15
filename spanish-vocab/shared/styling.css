@@ -1,0 +1,73 @@
+/* Shared styling for the ES note types.
+   Identical in both — edit here, then run ./build.sh. */
+
+.card {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 22px;
+  text-align: left;
+  color: black;
+  background-color: white;
+  max-width: 34em;
+  margin: 0 auto;
+  padding: 1em;
+  line-height: 1.5;
+}
+
+.nightMode.card,
+.night_mode .card {
+  color: #e8e8e8;
+  background-color: #2f2f31;
+}
+
+.oracion {
+  font-size: 1.1em;
+  line-height: 1.5;
+}
+
+#palabra {
+  display: none;
+}
+
+.acierto,
+.hueco {
+  font-weight: 700;
+}
+
+.hueco {
+  color: #4a90d9;
+  letter-spacing: 0.05em;
+}
+
+.nightMode .hueco,
+.night_mode .hueco {
+  color: #7cb7ea;
+}
+
+.pista {
+  margin-top: 0.6em;
+  font-size: 0.85em;
+  color: #888;
+  font-style: italic;
+}
+
+.definicion {
+  margin-top: 0.8em;
+}
+
+.fuente {
+  font-size: 0.75em;
+  color: #888;
+  margin-top: 1em;
+}
+
+.notas {
+  font-size: 0.85em;
+  color: #888;
+  margin-top: 0.8em;
+}
+
+/* Palabra did not match anything in Oración — fix the note. */
+.sin-coincidencia {
+  border-left: 3px solid #d66;
+  padding-left: 0.5em;
+}
