@@ -19,26 +19,33 @@ into a textarea in Anki's card template editor. So:
   Anki's Qt WebEngine), no optional chaining, no arrow functions in the hot
   path. `let`/`const` are fine and preferred over `var` — both run natively on
   every Anki target.
-- **The IIFE wrapper is load-bearing, not stylistic.** Anki injects this same
-  script fresh on every card render (front and back, every card) without a
-  full page reload — the document persists across the whole review session.
-  Confirmed by testing real `<script>` re-injection into one live document: a
-  bare top-level `let`/`const` throws `SyntaxError: Identifier already
-  declared` the second time the script runs, because classic (non-module)
-  top-level `let`/`const` bindings live in the page's shared global lexical
-  environment, not a per-`<script>`-tag scope. `var` doesn't have this problem
-  (redeclaring is a no-op), which is why the file used to be all-`var` — the
-  IIFE is what makes `let`/`const` safe here, by giving each execution its own
-  fresh function scope. Never flatten the top-level wrapper away.
+- **The IIFE wrapper is load-bearing, not stylistic.** `build.sh` embeds this
+  script directly in a `<script>` tag in every front template (and in
+  `produccion/2-produccion`'s back, which can't inherit it — see below). A
+  recognition-style back uses `{{FrontSide}}`, which carries the front's
+  rendered HTML — script tag included — into the back's DOM, so the script
+  runs again there too. Same for the next card. None of this is a full page
+  reload; the document persists across the whole review session. Confirmed by
+  testing real `<script>` re-injection into one live document: a bare
+  top-level `let`/`const` throws `SyntaxError: Identifier already declared`
+  the second time the script runs, because classic (non-module) top-level
+  `let`/`const` bindings live in the page's shared global lexical environment,
+  not a per-`<script>`-tag scope. `var` doesn't have this problem (redeclaring
+  is a no-op), which is why the file used to be all-`var` — the IIFE is what
+  makes `let`/`const` safe here, by giving each execution its own fresh
+  function scope. Never flatten the top-level wrapper away.
 - Anki does not officially support JavaScript in templates. Prefer boring,
   widely-supported DOM APIs over anything recent.
 
 ## Single source of truth
 
-`shared/styling.css` and `shared/script.js` are the only copies. Both note types
-get identical Styling tabs, assembled by `./build.sh` into `dist/`. Never edit a
-file in `dist/` — it's regenerated. Never fork the script per note type; the
-mode is passed in from the template via `data-modo`.
+`shared/styling.css` and `shared/script.js` are the only copies.
+`./build.sh` copies `styling.css` verbatim into each note type's
+`dist/<notetype>.styling.css` (pure CSS, pastes into the Styling tab), and
+embeds `script.js` directly into every front template's `dist/*.front.html`
+(and into `produccion/2-produccion`'s back — see the IIFE note above for
+why). Never edit a file in `dist/` — it's regenerated. Never fork the script
+per note type; the mode is passed in from the template via `data-modo`.
 
 ## The script's contract with the templates
 
