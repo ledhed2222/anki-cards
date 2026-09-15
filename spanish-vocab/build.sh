@@ -6,7 +6,7 @@
 # all four card templates. This just glues the two shared files together so
 # there is exactly one place to edit each.
 #
-# Usage:  ./build.sh        then paste dist/*.styling.txt into Anki
+# Usage:  ./build.sh        then paste dist/*.styling.css into Anki
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 mkdir -p dist
 
 for NOTETYPE in reconocimiento produccion; do
-  OUT="dist/${NOTETYPE}.styling.txt"
+  OUT="dist/${NOTETYPE}.styling.css"
   {
     cat shared/styling.css
     printf '\n<script>\n'
@@ -32,5 +32,5 @@ done
 
 echo
 echo "Paste into Anki:"
-echo "  Styling tab      <- dist/<notetype>.styling.txt  (CSS *and* the script block)"
+echo "  Styling tab      <- dist/<notetype>.styling.css  (CSS *and* the script block)"
 echo "  Front/Back tabs  <- the matching .front.html / .back.html"
