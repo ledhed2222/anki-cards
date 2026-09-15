@@ -270,20 +270,30 @@ def main():
 
         print(f"  + {word} = {definicion or '(skipped)'}  ({title or 'unknown source'})")
         if args.apply:
-            anki(
-                "addNote",
-                note={
-                    "deckName": DECK,
-                    "modelName": MODEL,
-                    "fields": {
-                        "Palabra": word,
-                        "Oración": usage,
-                        "Definición": definicion,
-                        "Fuente": title or "",
+            try:
+                anki(
+                    "addNote",
+                    note={
+                        "deckName": DECK,
+                        "modelName": MODEL,
+                        "fields": {
+                            "Palabra": word,
+                            "Oración": usage,
+                            "Definición": definicion,
+                            "Fuente": title or "",
+                        },
+                        "tags": ["kindle-import"],
                     },
-                    "tags": ["kindle-import"],
-                },
-            )
+                )
+            except RuntimeError as e:
+                if "duplicate" not in str(e):
+                    raise
+                # Our stem-based dedup missed this one (surface form matches an
+                # existing note under a different stem key) - Anki's own exact-
+                # match check caught it. Log and move on rather than crash.
+                skip_counts["duplicate"] += 1
+                log_skip("duplicate_in_anki", word, stem, usage, title or "")
+                continue
         added += 1
 
     total_skipped = sum(skip_counts.values())
