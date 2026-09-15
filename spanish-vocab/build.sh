@@ -14,7 +14,7 @@ cd "$(dirname "$0")"
 mkdir -p dist
 
 for NOTETYPE in reconocimiento produccion; do
-  OUT="dist/es-${NOTETYPE}.styling.txt"
+  OUT="dist/${NOTETYPE}.styling.txt"
   {
     cat shared/styling.css
     printf '\n<script>\n'
