@@ -11,29 +11,6 @@
   const ACCENT_INSENSITIVE = true // fall back to a diacritic-blind match
   const SEPARATOR = '|' // multiple targets: se|dio cuenta
   const HUECO = '[…]'
-
-  const host = document.getElementById('oracion')
-  const tEl = document.getElementById('palabra')
-  if (!host || !tEl) {
-    return
-  }
-
-  const oculto = host.dataset && host.dataset.modo === 'produccion'
-
-  const raw = (tEl.textContent || '').trim()
-  if (!raw) {
-    return
-  }
-
-  // recognition: respect hand-bolding and bail.
-  // production: must always run, or the answer stays visible.
-  if (!oculto && host.querySelector('b, strong')) {
-    return
-  }
-  if (host.querySelector('.acierto, .hueco')) {
-    return
-  } // already processed
-
   const LETTER = 'A-Za-zÀ-ÖØ-öø-ÿ'
   const FOLD = {
     a: 'aáàâä',
@@ -78,7 +55,7 @@
     )
   }
 
-  function highlight(root, re) {
+  function highlight(root, re, oculto) {
     const walker = document.createTreeWalker(
       root,
       NodeFilter.SHOW_TEXT,
@@ -130,21 +107,51 @@
     return hits
   }
 
-  const targets = raw
-    .split(SEPARATOR)
-    .map(function (s) {
-      return s.trim()
-    })
-    .filter(Boolean)
-    .sort(function (a, b) {
-      return b.length - a.length
-    }) // longest first
+  function parseTargets(raw) {
+    return raw
+      .split(SEPARATOR)
+      .map(function (s) {
+        return s.trim()
+      })
+      .filter(Boolean)
+      .sort(function (a, b) {
+        return b.length - a.length
+      }) // longest first
+  }
 
-  let found = highlight(host, build(targets, false))
-  if (!found && ACCENT_INSENSITIVE) {
-    found = highlight(host, build(targets, true))
+  function main() {
+    const host = document.getElementById('oracion')
+    const tEl = document.getElementById('palabra')
+    if (!host || !tEl) {
+      return
+    }
+
+    const oculto = host.dataset && host.dataset.modo === 'produccion'
+
+    const raw = (tEl.textContent || '').trim()
+    if (!raw) {
+      return
+    }
+
+    // recognition: respect hand-bolding and bail.
+    // production: must always run, or the answer stays visible.
+    if (!oculto && host.querySelector('b, strong')) {
+      return
+    }
+    if (host.querySelector('.acierto, .hueco')) {
+      return
+    } // already processed
+
+    const targets = parseTargets(raw)
+
+    let found = highlight(host, build(targets, false), oculto)
+    if (!found && ACCENT_INSENSITIVE) {
+      found = highlight(host, build(targets, true), oculto)
+    }
+    if (!found) {
+      host.classList.add('sin-coincidencia')
+    }
   }
-  if (!found) {
-    host.classList.add('sin-coincidencia')
-  }
+
+  main()
 })()
