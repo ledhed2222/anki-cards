@@ -26,11 +26,18 @@ import json
 import os
 import re
 import sqlite3
+import subprocess
 import sys
+import urllib.parse
 import urllib.request
 
 LETTER = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]+")
 HTML_TAG = re.compile(r"<[^>]+>")
+FORM_OF = re.compile(
+    r"^(plural|feminine|masculine|diminutive|augmentative|superlative|"
+    r"first-person|second-person|third-person|past participle|"
+    r"present participle|gerund|imperative) ", re.IGNORECASE,
+)
 
 ANKI_URL = "http://127.0.0.1:8765"
 DECK = "Vocabulario español"
@@ -38,6 +45,7 @@ MODEL = "Español Reconocimiento"
 STATE_DIR = os.path.expanduser("~/.anki-cards")
 STATE_FILE = os.path.join(STATE_DIR, "kindle_vocab_state.json")
 SKIP_LOG = os.path.join(STATE_DIR, "kindle_vocab_skipped.log")
+WIKTIONARY_URL = "https://en.wiktionary.org/api/rest_v1/page/definition/"
 
 
 def anki(action, **params):
@@ -130,6 +138,59 @@ def fetch_deck_words():
     return words
 
 
+def fetch_wiktionary_gloss(term):
+    """English Wiktionary's REST API, keyed on the Spanish-language section
+    of the word's page. Open content (CC BY-SA), explicitly built for this
+    kind of reuse - unlike WordReference (see docs/leech-conversion.md),
+    there's no ToS concern here. Look up the stem/lemma, not the raw
+    inflected word: an inflected form's own page often just says "plural of
+    X" rather than a real definition (confirmed: 'cantos' -> 'plural of
+    canto', but 'canto' -> 'singing, song'). Returns None on 404 or if
+    every definition found is itself a bare inflection cross-reference."""
+    url = WIKTIONARY_URL + urllib.parse.quote(term)
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "anki-cards/1.0 (personal study script)"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError:
+        return None
+    except Exception:
+        return None
+
+    for entry in data.get("es", []):
+        for d in entry.get("definitions", []):
+            text = HTML_TAG.sub("", d.get("definition", "")).strip()
+            if text and not FORM_OF.match(text):
+                return text
+    return None
+
+
+def fetch_claude_gloss(word):
+    """Fallback for words Wiktionary doesn't have. Same reasoning as the
+    leech-conversion sense-judgment: this is a translation task, not
+    something that needs a separate API relationship - `claude -p` runs it
+    directly."""
+    prompt = (
+        f"Give a short English gloss (2-6 words) for the Spanish word "
+        f"'{word}'. Respond with ONLY the gloss, nothing else."
+    )
+    try:
+        result = subprocess.run(
+            ["claude", "-p", prompt],
+            capture_output=True, text=True, timeout=60,
+        )
+    except Exception:
+        return None
+    text = result.stdout.strip()
+    return text or None
+
+
+def fetch_gloss(word, stem):
+    return fetch_wiktionary_gloss(stem or word) or fetch_claude_gloss(word)
+
+
 def log_skip(reason, word, stem, usage, title):
     os.makedirs(STATE_DIR, exist_ok=True)
     with open(SKIP_LOG, "a", encoding="utf-8") as f:
@@ -143,6 +204,8 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="max lookups to process (0 = all)")
     ap.add_argument("--apply", action="store_true", help="actually add notes (default: dry run)")
     ap.add_argument("--inspect", action="store_true", help="print vocab.db schema/sample rows and exit")
+    ap.add_argument("--no-definitions", action="store_true",
+                    help="skip Wiktionary/claude lookups, leave Definición blank (faster dry runs)")
     args = ap.parse_args()
 
     db_path = find_vocab_db(args.kindle_path)
@@ -194,7 +257,9 @@ def main():
             continue
 
         seen_this_run.add(key)
-        print(f"  + {word}  ({title or 'unknown source'})")
+        definicion = "" if args.no_definitions else (fetch_gloss(word, stem) or "")
+        gloss_note = definicion or "(no gloss found)"
+        print(f"  + {word} = {gloss_note}  ({title or 'unknown source'})")
         if args.apply:
             anki(
                 "addNote",
@@ -204,7 +269,7 @@ def main():
                     "fields": {
                         "Palabra": word,
                         "Oración": usage,
-                        "Definición": "",
+                        "Definición": definicion,
                         "Fuente": title or "",
                     },
                     "tags": ["kindle-import"],
@@ -221,7 +286,8 @@ def main():
     else:
         state["last_timestamp"] = max_timestamp
         save_state(state)
-        print("Note: Definición is left blank - fill it in yourself in Anki's browser.")
+        if args.no_definitions:
+            print("Note: Definición is left blank - fill it in yourself in Anki's browser.")
 
 
 if __name__ == "__main__":
