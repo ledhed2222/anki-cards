@@ -16,8 +16,8 @@
     "@ledhed2222/stylelint-config": "^1.0.1",
     "eslint": "^9.39.5",
     "globals": "^17.12.0",
-    "jsdom": "^30.0.1",
-    "prettier": "^3.9.6",
+    "jsdom": "^30.1.0",
+    "prettier": "^3.9.8",
     "stylelint": "^17.15.0"
   }
 }
