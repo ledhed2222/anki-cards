@@ -10,7 +10,7 @@
     "format": "prettier --write spanish-vocab/shared/script.js spanish-vocab/shared/styling.css spanish-vocab/test/run.js"
   },
   "devDependencies": {
-    "@ledhed2222/eslint-config": "^1.1.0",
+    "@ledhed2222/eslint-config": "^2.0.0",
     "@ledhed2222/htmlhint-config": "^1.1.0",
     "@ledhed2222/prettier-config": "^1.1.0",
     "@ledhed2222/stylelint-config": "^1.0.2",
