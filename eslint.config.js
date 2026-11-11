@@ -10,7 +10,7 @@ export default [
   {
     files: ['**/*.js'],
     rules: {
-      'import/no-default-export': 'off',
+      'import-x/no-default-export': 'off',
     },
   },
   // Source: pasted into Anki's WKWebView as a plain <script> tag, never
