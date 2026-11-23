@@ -1,0 +1,5 @@
+[tools]
+# CI uses lts/* too (.github/workflows/ci.yml); keep them in step.
+node = "lts"
+python = "latest"
+"pipx:basedpyright" = "latest"
