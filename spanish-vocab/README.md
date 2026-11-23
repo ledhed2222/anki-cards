@@ -10,7 +10,7 @@ A word lives in **one** of them at a time.
 | | ES Reconocimiento | ES Producción |
 |---|---|---|
 | Cards per note | 1 | 2 |
-| Fields | Palabra, Oración, Definición, Fuente, Notas | + Pista |
+| Fields | Lema, Palabra, Oración, Definición, Fuente, Notas | + Pista |
 | For | words you need to understand | words you want to *say* |
 
 Default every new word to **ES Reconocimiento**. Upgrade a word to
@@ -28,6 +28,11 @@ The recognition card keeps its full scheduling history.
 
 ## Fields
 
+- **Lema** — the dictionary form (`hechizar` for a lookup of `hechizado`,
+  `frenar` for `frenó`). It's the first field, so it's what Anki keys the note
+  on: its sort field and its duplicate check. One note per lemma — Lema is what
+  stops a second form of the same word (`hechizaba`, `hechizó`) from being
+  added as a new note. The Kindle importer fills it from Kindle's own `stem`.
 - **Palabra** — the surface form *exactly as it appears in the sentence*
   (`frenó`, not `frenar`). This is what the script finds and bolds or blanks.
   Split phrases use the `|` separator: `se|dio cuenta`.
@@ -105,7 +110,7 @@ jsdom is not WKWebView, so this catches logic regressions only.
 `tools/kindle_vocab_import.py` reads a physical Kindle's Vocabulary Builder
 (over USB, read-only) and adds new lookups as `Español Reconocimiento` notes,
 deduped against the whole deck by lemma. See `docs/capture-automation.md` for
-the full design, including the iOS/macOS Shortcuts side (not yet built).
+the full design.
 
 ## Deck setup
 

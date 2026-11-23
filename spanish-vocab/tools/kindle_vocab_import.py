@@ -28,98 +28,121 @@ import re
 import sqlite3
 import subprocess
 import sys
-import urllib.parse
+import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from http.client import HTTPResponse
+from typing import NamedTuple, cast
 
-LETTER = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]+")
-HTML_TAG = re.compile(r"<[^>]+>")
-FORM_OF = re.compile(
-    r"^(plural|feminine|masculine|diminutive|augmentative|superlative|"
-    r"first-person|second-person|third-person|past participle|"
-    r"present participle|gerund|imperative) ", re.IGNORECASE,
-)
+_LETTER = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ]+")
+_HTML_TAG = re.compile(r"<[^>]+>")
 
-ANKI_URL = "http://127.0.0.1:8765"
-DECK = "Vocabulario español"
-MODEL = "Español Reconocimiento"
-STATE_DIR = os.path.expanduser("~/.anki-cards")
-STATE_FILE = os.path.join(STATE_DIR, "kindle_vocab_state.json")
-SKIP_LOG = os.path.join(STATE_DIR, "kindle_vocab_skipped.log")
-WIKTIONARY_URL = "https://en.wiktionary.org/api/rest_v1/page/definition/"
+_ANKI_URL = "http://127.0.0.1:8765"
+_DECK = "Vocabulario español"
+_MODEL = "Español Reconocimiento"
+_STATE_DIR = os.path.expanduser("~/.anki-cards")
+_STATE_FILE = os.path.join(_STATE_DIR, "kindle_vocab_state.json")
+_SKIP_LOG = os.path.join(_STATE_DIR, "kindle_vocab_skipped.log")
+
+_GLOSS_MODEL = "sonnet"
+_BATCH_SIZE = 50
+_PARALLEL_CALLS = 4
+_GLOSS_PROMPT = """\
+You are given a JSON list of Spanish words, each with the sentence it was
+read in. For each, give a short English gloss (2-6 words) for the sense used
+in that sentence, in the same part of speech as the word as it appears there
+(an adjective gets an adjective gloss). Don't label the part of speech.
+Reply with ONLY one line per word: its id, a tab, then the gloss. No other
+text."""
 
 
-def anki(action, **params):
+class _Lookup(NamedTuple):
+    word: str
+    stem: str | None
+    usage: str | None
+    timestamp: int
+    title: str | None
+
+
+class _Args(argparse.Namespace):
+    kindle_path: str = "/Volumes/Kindle"
+    lang: str = "es"
+    limit: int = 0
+    apply: bool = False
+    inspect: bool = False
+    no_definitions: bool = False
+
+
+def _anki(action: str, **params: object) -> object:
     payload = json.dumps({"action": action, "version": 6, "params": params})
     req = urllib.request.Request(
-        ANKI_URL, data=payload.encode("utf-8"),
+        _ANKI_URL, data=payload.encode("utf-8"),
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            body = json.loads(r.read().decode("utf-8"))
+        with cast(HTTPResponse, urllib.request.urlopen(req, timeout=30)) as r:
+            body = cast(dict[str, object], json.loads(r.read().decode("utf-8")))
     except urllib.error.URLError as e:
-        sys.exit(f"Can't reach AnkiConnect at {ANKI_URL} - is Anki running?\n  {e}")
+        sys.exit(f"Can't reach AnkiConnect at {_ANKI_URL} - is Anki running?\n  {e}")
     if body.get("error"):
         raise RuntimeError(body["error"])
     return body["result"]
 
 
-def find_vocab_db(kindle_path):
+def _find_vocab_db(kindle_path: str) -> str:
     path = os.path.join(kindle_path, "system", "vocabulary", "vocab.db")
     if not os.path.exists(path):
         sys.exit(f"No vocab.db at {path} - is the Kindle plugged in and mounted "
-                 f"at {kindle_path}? Use --kindle-path to point elsewhere.")
+                 + f"at {kindle_path}? Use --kindle-path to point elsewhere.")
     return path
 
 
-def load_state():
-    if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, encoding="utf-8") as f:
-            return json.load(f)
-    return {"last_timestamp": 0}
+def _load_last_timestamp() -> int:
+    if os.path.exists(_STATE_FILE):
+        with open(_STATE_FILE, encoding="utf-8") as f:
+            return cast(dict[str, int], json.load(f))["last_timestamp"]
+    return 0
 
 
-def save_state(state):
-    os.makedirs(STATE_DIR, exist_ok=True)
-    with open(STATE_FILE, "w", encoding="utf-8") as f:
-        json.dump(state, f)
+def _save_last_timestamp(timestamp: int) -> None:
+    os.makedirs(_STATE_DIR, exist_ok=True)
+    with open(_STATE_FILE, "w", encoding="utf-8") as f:
+        json.dump({"last_timestamp": timestamp}, f)
 
 
-def inspect(db_path):
+def _inspect(db_path: str) -> None:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    cur = conn.cursor()
     for table in ("WORDS", "LOOKUPS", "BOOK_INFO"):
         print(f"\n=== {table} ===")
-        cur.execute(f"PRAGMA table_info({table})")
-        cols = [row[1] for row in cur.fetchall()]
-        print("columns:", cols)
-        cur.execute(f"SELECT * FROM {table} LIMIT 3")
-        for row in cur.fetchall():
+        info = cast(list[tuple[object, ...]], conn.execute(f"PRAGMA table_info({table})").fetchall())
+        print("columns:", [row[1] for row in info])
+        sample = cast(list[tuple[object, ...]], conn.execute(f"SELECT * FROM {table} LIMIT 3").fetchall())
+        for row in sample:
             print(" ", row)
     conn.close()
 
 
-def fetch_new_lookups(db_path, lang, since_timestamp):
+def _fetch_new_lookups(db_path: str, lang: str, since_timestamp: int) -> list[_Lookup]:
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT w.word, w.stem, l.usage, l.timestamp, b.title
-        FROM LOOKUPS l
-        JOIN WORDS w ON w.id = l.word_key
-        LEFT JOIN BOOK_INFO b ON b.id = l.book_key
-        WHERE w.lang = ? AND l.timestamp > ?
-        ORDER BY l.timestamp ASC
-        """,
-        (lang, since_timestamp),
+    rows = cast(
+        list[tuple[str, str | None, str | None, int, str | None]],
+        conn.execute(
+            """
+            SELECT w.word, w.stem, l.usage, l.timestamp, b.title
+            FROM LOOKUPS l
+            JOIN WORDS w ON w.id = l.word_key
+            LEFT JOIN BOOK_INFO b ON b.id = l.book_key
+            WHERE w.lang = ? AND l.timestamp > ?
+            ORDER BY l.timestamp ASC
+            """,
+            (lang, since_timestamp),
+        ).fetchall(),
     )
-    rows = [dict(r) for r in cur.fetchall()]
     conn.close()
-    return rows
+    return [_Lookup(*row) for row in rows]
 
 
-def fetch_deck_words():
+def _fetch_deck_words() -> set[str]:
     """Every whole word occurring anywhere in the deck, fetched once (2
     AnkiConnect calls total) rather than one findNotes round-trip per word.
     AnkiConnect can't handle concurrent requests (a single-threaded local
@@ -128,100 +151,108 @@ def fetch_deck_words():
     Tokenizing the whole deck's text locally and checking set membership is
     the same "does this whole word appear anywhere in the note" semantics as
     Anki's own `w:` search, just ~1500x faster for a bulk run like this."""
-    ids = anki("findNotes", query=f'deck:"{DECK}"')
-    notes = anki("notesInfo", notes=ids) if ids else []
-    words = set()
+    ids = cast(list[int], _anki("findNotes", query=f'deck:"{_DECK}"'))
+    notes = cast(
+        list[dict[str, dict[str, dict[str, str | None]]]],
+        _anki("notesInfo", notes=ids) if ids else [],
+    )
+    words: set[str] = set()
     for n in notes:
         for f in n["fields"].values():
-            text = HTML_TAG.sub("", f["value"] or "")
-            words.update(w.lower() for w in LETTER.findall(text))
+            text = _HTML_TAG.sub("", f["value"] or "")
+            words.update(w.lower() for w in cast(list[str], _LETTER.findall(text)))
     return words
 
 
-def fetch_wiktionary_gloss(term):
-    """English Wiktionary's REST API, keyed on the Spanish-language section
-    of the word's page. Open content (CC BY-SA), explicitly built for this
-    kind of reuse - unlike WordReference (see docs/leech-conversion.md),
-    there's no ToS concern here. Look up the stem/lemma, not the raw
-    inflected word: an inflected form's own page often just says "plural of
-    X" rather than a real definition (confirmed: 'cantos' -> 'plural of
-    canto', but 'canto' -> 'singing, song'). Returns None on 404 or if
-    every definition found is itself a bare inflection cross-reference."""
-    url = WIKTIONARY_URL + urllib.parse.quote(term)
-    req = urllib.request.Request(
-        url, headers={"User-Agent": "anki-cards/1.0 (personal study script)"},
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = json.loads(r.read().decode("utf-8"))
-    except urllib.error.HTTPError:
-        return None
-    except Exception:
-        return None
+def _claude_glosses(batch: list[_Lookup]) -> tuple[list[str], float]:
+    """One `claude -p` call for a batch of (word, sentence) pairs. The
+    sentence is what makes the gloss right: a context-blind lookup picks the
+    first dictionary sense ('bochorno' -> 'hot summer wind' where the book
+    meant 'embarrassment'). A bare `claude -p` loads the full Claude Code
+    context (~44k tokens of CLAUDE.md, hooks, plugins, MCP tools) on the
+    default model, ~$0.29 per call; these flags strip all of that.
 
-    for entry in data.get("es", []):
-        for d in entry.get("definitions", []):
-            text = HTML_TAG.sub("", d.get("definition", "")).strip()
-            if text and not FORM_OF.match(text):
-                return text
-    return None
-
-
-def fetch_claude_gloss(word):
-    """Fallback for words Wiktionary doesn't have. Same reasoning as the
-    leech-conversion sense-judgment: this is a translation task, not
-    something that needs a separate API relationship - `claude -p` runs it
-    directly."""
-    prompt = (
-        f"Give a short English gloss (2-6 words) for the Spanish word "
-        f"'{word}'. Respond with ONLY the gloss, nothing else."
-    )
+    Fails the whole run on any error, before anything is added: skipping
+    the batch would still advance last_timestamp past its words, losing
+    them. Returns glosses aligned with `batch`, "" where one is missing."""
+    items = [{"id": str(i), "word": r.word, "sentence": r.usage}
+             for i, r in enumerate(batch)]
     try:
         result = subprocess.run(
-            ["claude", "-p", prompt],
-            capture_output=True, text=True, timeout=60,
+            ["claude", "-p", json.dumps(items, ensure_ascii=False),
+             "--model", _GLOSS_MODEL,
+             "--setting-sources", "",
+             "--strict-mcp-config",
+             "--disable-slash-commands",
+             "--tools", "",
+             "--no-session-persistence",
+             "--output-format", "json",
+             "--system-prompt", _GLOSS_PROMPT],
+            capture_output=True, text=True, timeout=300,
         )
-    except Exception:
-        return None
-    text = result.stdout.strip()
-    return text or None
+    except subprocess.TimeoutExpired as e:
+        sys.exit(f"claude batch failed, nothing added: {e}")
+    try:
+        envelope = cast(dict[str, object], json.loads(result.stdout, strict=False))
+        reply = cast(str, envelope["result"])
+    except (ValueError, KeyError) as e:
+        sys.exit(f"claude batch failed, nothing added: {e}\n"
+                 + (result.stdout + result.stderr)[:2000])
+    # Tab-separated, not JSON: a gloss with a quote in it broke the JSON
+    # reply and failed a whole run.
+    by_id: dict[str, str] = {}
+    for line in reply.splitlines():
+        if "\t" in line:
+            key, gloss = line.strip().split("\t", 1)
+            by_id[key] = gloss.strip()
+    cost = cast(float | None, envelope.get("total_cost_usd")) or 0.0
+    return [by_id.get(str(i), "") for i in range(len(batch))], cost
 
 
-def fetch_gloss(word, stem):
-    return fetch_wiktionary_gloss(stem or word) or fetch_claude_gloss(word)
+def _fetch_glosses(rows: list[_Lookup]) -> list[str]:
+    batches = [rows[i:i + _BATCH_SIZE] for i in range(0, len(rows), _BATCH_SIZE)]
+    glosses: list[str] = []
+    cost = 0.0
+    with ThreadPoolExecutor(_PARALLEL_CALLS) as pool:
+        for got, c in pool.map(_claude_glosses, batches):
+            glosses.extend(got)
+            cost += c
+    print(f"{len(batches)} claude call(s), ${cost:.4f}")
+    return glosses
 
 
-def log_skip(reason, word, stem, usage, title):
-    os.makedirs(STATE_DIR, exist_ok=True)
-    with open(SKIP_LOG, "a", encoding="utf-8") as f:
-        f.write(f"{reason}\t{word}\t{stem}\t{title}\t{usage}\n")
+def _log_skip(reason: str, row: _Lookup) -> None:
+    os.makedirs(_STATE_DIR, exist_ok=True)
+    usage = row.usage or "(no usage sentence captured)"
+    with open(_SKIP_LOG, "a", encoding="utf-8") as f:
+        _ = f.write(f"{reason}\t{row.word}\t{row.stem}\t{row.title or ''}\t{usage}\n")
 
 
-def main():
+def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--kindle-path", default="/Volumes/Kindle")
-    ap.add_argument("--lang", default="es")
-    ap.add_argument("--limit", type=int, default=0, help="max lookups to process (0 = all)")
-    ap.add_argument("--apply", action="store_true", help="actually add notes (default: dry run)")
-    ap.add_argument("--inspect", action="store_true", help="print vocab.db schema/sample rows and exit")
-    ap.add_argument("--no-definitions", action="store_true",
-                    help="skip Wiktionary/claude lookups, leave Definición blank (faster dry runs)")
-    args = ap.parse_args()
+    _ = ap.add_argument("--kindle-path")
+    _ = ap.add_argument("--lang")
+    _ = ap.add_argument("--limit", type=int, help="max lookups to process (0 = all)")
+    _ = ap.add_argument("--apply", action="store_true", help="actually add notes (default: dry run)")
+    _ = ap.add_argument("--inspect", action="store_true", help="print vocab.db schema/sample rows and exit")
+    _ = ap.add_argument("--no-definitions", action="store_true",
+                        help="skip claude, leave Definición blank (free dry runs)")
+    args = ap.parse_args(namespace=_Args())
 
-    db_path = find_vocab_db(args.kindle_path)
+    db_path = _find_vocab_db(args.kindle_path)
 
     if args.inspect:
-        inspect(db_path)
+        _inspect(db_path)
         return
 
-    fields = anki("modelFieldNames", modelName=MODEL)
-    print(f"Target model {MODEL!r} has fields: {fields}")
+    fields = _anki("modelFieldNames", modelName=_MODEL)
+    print(f"Target model {_MODEL!r} has fields: {fields}")
 
-    deck_words = fetch_deck_words()
-    print(f"{len(deck_words)} distinct words already in {DECK!r}")
+    deck_words = _fetch_deck_words()
+    print(f"{len(deck_words)} distinct words already in {_DECK!r}")
 
-    state = load_state()
-    lookups = fetch_new_lookups(db_path, args.lang, state["last_timestamp"])
+    last_timestamp = _load_last_timestamp()
+    lookups = _fetch_new_lookups(db_path, args.lang, last_timestamp)
     print(f"{len(lookups)} new {args.lang!r} lookups since last sync")
     if args.limit:
         lookups = lookups[:args.limit]
@@ -229,58 +260,59 @@ def main():
 
     added = 0
     skip_counts = {"no_usage": 0, "duplicate": 0, "no_definition": 0}
-    max_timestamp = state["last_timestamp"]
+    max_timestamp = last_timestamp
 
-    seen_this_run = set()
+    seen_this_run: set[str] = set()
+    candidates: list[_Lookup] = []
 
     for row in lookups:
-        word, stem, usage, ts, title = (
-            row["word"], row["stem"], row["usage"], row["timestamp"], row["title"],
-        )
-        max_timestamp = max(max_timestamp, ts)
+        max_timestamp = max(max_timestamp, row.timestamp)
 
-        if not usage:
+        if not row.usage:
             skip_counts["no_usage"] += 1
-            log_skip("no_usage", word, stem, "(no usage sentence captured)", title or "")
+            _log_skip("no_usage", row)
             continue
 
-        key = (stem or word).lower()
+        key = (row.stem or row.word).lower()
 
         if key in seen_this_run:
             skip_counts["duplicate"] += 1
-            log_skip("duplicate_in_batch", word, stem, usage, title or "")
+            _log_skip("duplicate_in_batch", row)
             continue
 
         if key in deck_words:
             skip_counts["duplicate"] += 1
-            log_skip("duplicate_in_anki", word, stem, usage, title or "")
+            _log_skip("duplicate_in_anki", row)
             continue
 
         seen_this_run.add(key)
+        candidates.append(row)
 
-        definicion = ""
-        if not args.no_definitions:
-            definicion = fetch_gloss(word, stem) or ""
-            if not definicion:
-                # Neither Wiktionary nor the claude fallback found anything -
-                # an error state, not something to silently add blank.
-                skip_counts["no_definition"] += 1
-                log_skip("no_definition", word, stem, usage, title or "")
-                continue
+    if args.no_definitions:
+        glosses = [""] * len(candidates)
+    else:
+        glosses = _fetch_glosses(candidates)
 
-        print(f"  + {word} = {definicion or '(skipped)'}  ({title or 'unknown source'})")
+    for row, definicion in zip(candidates, glosses):
+        if not args.no_definitions and not definicion:
+            skip_counts["no_definition"] += 1
+            _log_skip("no_definition", row)
+            continue
+
+        print(f"  + {row.word} = {definicion or '(skipped)'}  ({row.title or 'unknown source'})")
         if args.apply:
             try:
-                anki(
+                _ = _anki(
                     "addNote",
                     note={
-                        "deckName": DECK,
-                        "modelName": MODEL,
+                        "deckName": _DECK,
+                        "modelName": _MODEL,
                         "fields": {
-                            "Palabra": word,
-                            "Oración": usage,
+                            "Lema": row.stem or row.word,
+                            "Palabra": row.word,
+                            "Oración": row.usage,
                             "Definición": definicion,
-                            "Fuente": title or "",
+                            "Fuente": row.title or "",
                         },
                         "tags": ["kindle-import"],
                     },
@@ -292,22 +324,21 @@ def main():
                 # existing note under a different stem key) - Anki's own exact-
                 # match check caught it. Log and move on rather than crash.
                 skip_counts["duplicate"] += 1
-                log_skip("duplicate_in_anki", word, stem, usage, title or "")
+                _log_skip("duplicate_in_anki", row)
                 continue
         added += 1
 
     total_skipped = sum(skip_counts.values())
     print(f"\n{added} to add, {total_skipped} skipped "
-          f"({skip_counts['duplicate']} duplicate, {skip_counts['no_usage']} no usage sentence, "
-          f"{skip_counts['no_definition']} no definition found) "
-          f"- see {SKIP_LOG}")
-    if not args.apply:
-        print("Dry run - re-run with --apply to actually add notes.")
-    else:
-        state["last_timestamp"] = max_timestamp
-        save_state(state)
+          + f"({skip_counts['duplicate']} duplicate, {skip_counts['no_usage']} no usage sentence, "
+          + f"{skip_counts['no_definition']} no definition found) "
+          + f"- see {_SKIP_LOG}")
+    if args.apply:
+        _save_last_timestamp(max_timestamp)
         if args.no_definitions:
             print("Note: Definición is left blank - fill it in yourself in Anki's browser.")
+    else:
+        print("Dry run - re-run with --apply to actually add notes.")
 
 
 if __name__ == "__main__":

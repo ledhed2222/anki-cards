@@ -73,6 +73,12 @@ Adding fields or markup to a template is safe. Renaming those ids, or dropping
   use the explicit accented Latin range in `LETTER`.
 - **No `innerHTML` replacement on the sentence.** The script walks text nodes
   via `TreeWalker` so it cannot corrupt tags or attributes in `Oración`.
+- **`Lema` is the first field and must never be blank.** It's the lemma
+  (`hechizar`, not `hechizado`) and the note's identity: Anki's duplicate
+  check and sort field run on the first field, and dedup across inflected
+  forms depends on it. Anything that adds notes (`tools/`, or any future
+  capture route) must fill it — AnkiConnect rejects a blank first field as
+  "cannot create note because it is empty".
 - **Field names are accented** (`Oración`, `Definición`). Template references
   must match exactly, with precomposed characters, not combining accents.
 
