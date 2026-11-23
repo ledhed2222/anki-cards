@@ -84,7 +84,7 @@ Adding fields or markup to a template is safe. Renaming those ids, or dropping
 
 ## Tests
 
-`npm install && npm test` from the repo root. Any change to `shared/script.js`
-should keep all 17 green and usually add a case. jsdom is not WKWebView, so
+`mise run install && mise run test` from the repo root. Any change to
+`shared/script.js` should keep all 17 green and usually add a case. jsdom is not WKWebView, so
 green tests are necessary but not sufficient — real changes get verified on
 iOS before bulk-converting notes.

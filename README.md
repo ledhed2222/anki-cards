@@ -17,9 +17,17 @@ repo-wide.
 
 ## Tooling
 
+Tool versions and every script live in `mise.toml`. Install
+[mise](https://mise.jdx.dev), then from the repo root:
+
 ```
-npm install
-npm test
+mise install       # node, python, basedpyright
+mise run install   # npm dev dependencies
+mise run test
 ```
+
+`mise tasks` lists the rest (`lint`, `lint:fix`, `format`, `typecheck`,
+`build`, `kindle`). Arguments after `--` pass through, e.g.
+`mise run kindle -- --apply`.
 
 `package.json` at the root holds dev dependencies shared across collections.

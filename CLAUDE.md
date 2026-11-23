@@ -25,11 +25,12 @@ not the bare `<hr>` / `<br>`. Applies to every collection's templates.
 
 `package.json` at the root holds shared dev dependencies (`jsdom` for
 `spanish-vocab`'s tests, plus eslint/prettier/stylelint) so collections don't
-each need their own `node_modules`. `npm test` runs whichever collection's
-suite is wired into the `test` script — check `package.json` for the current
-target.
+each need their own `node_modules`. Every script is a mise task in
+`mise.toml` (no `scripts` in `package.json`); `mise run test` runs whichever
+collection's suite is wired into the `test` task — check `mise.toml` for the
+current target. Add new scripts there too, not to `package.json`.
 
-`npm run lint` / `npm run format` apply the `@ledhed2222/eslint-config`,
+`mise run lint` / `mise run format` apply the `@ledhed2222/eslint-config`,
 `@ledhed2222/prettier-config`, and `@ledhed2222/stylelint-config` presets
 (configured in `eslint.config.js`, the `prettier` field in `package.json`,
 and `.stylelintrc.json`)
@@ -50,7 +51,7 @@ and `night_mode` alongside kebab-case — those two are Anki's own night-mode
 marker classes (desktop Anki adds `.nightMode`, older/AnkiDroid convention
 uses `.night_mode`), not ours to rename to satisfy a lint rule.
 
-`htmlhint-config-lint spanish-vocab` (also run as part of `npm run lint`)
+`htmlhint-config-lint spanish-vocab` (also run as part of `mise run lint`)
 lints the `.front.html`/`.back.html` templates with
 `@ledhed2222/htmlhint-config`'s bundled CLI — this is a real check on the
 templates, not a `--fix`, so the mustache-syntax risk above doesn't apply;

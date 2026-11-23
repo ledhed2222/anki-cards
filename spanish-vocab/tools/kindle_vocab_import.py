@@ -4,10 +4,10 @@ Import Spanish word lookups from a physical Kindle's Vocabulary Builder into
 Español Reconocimiento notes. Read-only against the Kindle - it only ever
 reads vocab.db off the mounted device, never writes to it.
 
-    python3 tools/kindle_vocab_import.py --inspect
-    python3 tools/kindle_vocab_import.py --limit 20          # small dry run
-    python3 tools/kindle_vocab_import.py                     # full dry run
-    python3 tools/kindle_vocab_import.py --apply
+    mise run kindle -- --inspect
+    mise run kindle -- --limit 20          # small dry run
+    mise run kindle                        # full dry run
+    mise run kindle -- --apply
 
 Schema is the community-documented (unofficial) layout of vocab.db:
   WORDS(id, word, stem, lang, category, timestamp, profileid)

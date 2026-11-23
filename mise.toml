@@ -1,5 +1,46 @@
 [tools]
-# CI uses lts/* too (.github/workflows/ci.yml); keep them in step.
 node = "lts"
 python = "latest"
 "pipx:basedpyright" = "latest"
+
+[env]
+_.path = ["node_modules/.bin"]
+
+[tasks.install]
+description = "Install npm dev dependencies"
+run = "npm ci"
+
+[tasks.lint]
+description = "Lint JS, CSS and templates"
+run = [
+  "eslint spanish-vocab/shared/script.js spanish-vocab/test/run.js",
+  "stylelint spanish-vocab/shared/styling.css",
+  "htmlhint-config-lint spanish-vocab",
+]
+
+[tasks."lint:fix"]
+description = "Auto-fix JS and CSS lint issues (never templates)"
+run = [
+  "eslint spanish-vocab/shared/script.js spanish-vocab/test/run.js --fix",
+  "stylelint spanish-vocab/shared/styling.css --fix",
+]
+
+[tasks.format]
+description = "Prettier over hand-written JS/CSS (never templates)"
+run = "prettier --write spanish-vocab/shared/script.js spanish-vocab/shared/styling.css spanish-vocab/test/run.js"
+
+[tasks.typecheck]
+description = "basedpyright over Python tools"
+run = "basedpyright spanish-vocab/tools"
+
+[tasks.test]
+description = "Run spanish-vocab's tests"
+run = "node spanish-vocab/test/run.js"
+
+[tasks.build]
+description = "Assemble paste-ready templates into spanish-vocab/dist/"
+run = "./spanish-vocab/build.sh"
+
+[tasks.kindle]
+description = "Import Kindle vocab lookups (dry run unless --apply)"
+run = "python spanish-vocab/tools/kindle_vocab_import.py"

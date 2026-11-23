@@ -85,8 +85,7 @@ Everything else is markup the script never looks at.
 ## Tests
 
 ```
-npm install
-npm test
+mise run test
 ```
 
 17 checks over the regex and DOM walking: word boundaries against accented
