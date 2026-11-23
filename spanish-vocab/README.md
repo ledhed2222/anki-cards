@@ -111,6 +111,92 @@ jsdom is not WKWebView, so this catches logic regressions only.
 deduped against the whole deck by lemma. See `docs/capture-automation.md` for
 the full design.
 
+## Reading progress: lookups per 10k words
+
+Progress is measured as dictionary lookups per 10,000 words read, per book.
+If it falls over time on similar books, comprehension is improving.
+`tools/reading_stats.py` (`mise run reading-stats`) works it out from the
+Kindle (read-only, over USB) for the "Spanish Reading Tracker" Google Sheet.
+
+The script never talks to Google. A Claude Code session reads the Books tab
+with its Sheets connector, saves it as JSON, runs the script, shows the
+resulting plan, then writes it:
+
+```
+mise run reading-stats -- --sheet sheet.json > plan.json
+```
+
+### What it writes
+
+| Column | Written | Rule |
+|---|---|---|
+| A Book | new rows only | For books with lookups that have no row yet |
+| B Status | always | Inferred (see below); an `[auto]` note when unsure |
+| C Finished | only if empty | Date of last Kindle activity (last lookup or page-history entry); approximate |
+| D Lookups / 10k | never | An ARRAYFORMULA in D2 computes it from E and F |
+| E Lookups | always | Count of lookups in `vocab.db` |
+| F Words | if empty, or if its note starts `[auto]` | Combined estimate (see below), with an `[auto]` note listing the inputs |
+| G–J | never (H on new rows only) | Yours |
+
+Books are matched to rows by title, with accents, "(Spanish Edition)"-style
+parentheticals and trailing ": 6" removed. In `vocab.db`, lookups are grouped
+by ASIN, because a re-downloaded book gets a new book id with the same ASIN.
+Junk entries go in `_IGNORED_ASINS`.
+
+### Word count
+
+There's no exact count: the books are DRM'd. Up to three estimates are
+combined:
+
+| Method | Weight | Source | Used when |
+|---|---|---|---|
+| kindle | 3 | `book.info.store` / `timer.model` in the `.yjr`/`.yjf` sidecar: (words turned past, fraction of book); words ÷ fraction. The two records agree within ~0.3%. | The record covers ≥ 2% of the book. Below that, one page's density skews it: Piedra filosofal at 0.34% came out 27% low. |
+| amazon | 2 | Amazon's "typical time to read" (`StartActions.data.<ASIN>.asc`) × 264 wpm. It's per-book, not personal: the same for every reader, and present even for unread books. 264 matched `kindle` within ~2% on 4 books, but was 13% high for Morel. | Always, if Amazon has a reading time |
+| position | 1 | Furthest position read ÷ 5.60, the mean positions-per-word at the end of finished books (range 5.30–5.73) | Only when the book is inferred Finished |
+
+Outliers are dropped before averaging. With 3 values, any value more than 15%
+from the median is dropped; with 2, the reference is the higher-weight value.
+15% sits just above the biggest real disagreement seen (Morel, 13%).
+
+Ruled out:
+- Amazon's page count × words per page: words per page depends on the print
+  edition's typesetting.
+- Goodreads: page counts only.
+- Stripping DRM to count the text: not supported.
+
+A DRM-free copy's exact count, typed into F by hand, always wins.
+
+### Status
+
+The Kindle doesn't record "finished" anywhere visible over USB: the book's
+length in positions is inside the DRM'd `.kfx`. So status is a heuristic,
+checked against 9 books with known status on 2026-11-22:
+
+| Rule | Status | Note? |
+|---|---|---|
+| An `EndActions` record exists (you used the end-of-book screen) | Finished | no |
+| The next book in the series (same series, position + 1) has been started | Finished | no |
+| No lookups, and under 2% of the estimated length | Up next | no |
+| Furthest position ≥ 90% of the estimated length | Finished | yes |
+| Nothing on the Kindle in 60+ days | Reading | yes |
+| Otherwise | Reading | no |
+
+Signals that don't work:
+- **`lpr` (last page read):** the iOS app overwrites it when it opens a book.
+  This made Cáliz de fuego look abandoned at 94%.
+- **The `timer.model` fraction:** it undercounts reading done on the phone.
+- **Popular highlights:** they don't mark the end of the book.
+
+Goodreads shelf RSS would give the real status and date
+([#18](https://github.com/ledhed2222/anki-cards/issues/18)).
+
+### Caveats
+
+- Lookups made in the Kindle iOS app aren't in `vocab.db`, so books read
+  partly on the phone undercount.
+- A book with no lookups has no `vocab.db` entry at all, so it isn't picked
+  up until its first lookup.
+
 ## Deck setup
 
 - FSRS on, parameters optimized, desired retention ~0.85–0.90.

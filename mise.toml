@@ -41,6 +41,10 @@ run = "node spanish-vocab/test/run.js"
 description = "Assemble paste-ready templates into spanish-vocab/dist/"
 run = "./spanish-vocab/build.sh"
 
+[tasks.reading-stats]
+description = "Plan Spanish Reading Tracker sheet updates from Kindle data (JSON to stdout)"
+run = "python spanish-vocab/tools/reading_stats.py"
+
 [tasks.kindle]
 description = "Import Kindle vocab lookups (dry run unless --apply)"
 run = "python spanish-vocab/tools/kindle_vocab_import.py"
